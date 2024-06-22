@@ -85,16 +85,16 @@ def find_depends(pkg_name):
 
 
 
-def find_deep_depends(pkg_name):
+def find_full_depends(pkg_name):
     all_deps = set()
-    def _do_find_deep_depends(pkg_name):
+    def _do_find_full_depends(pkg_name):
         nonlocal all_deps
         deps = find_depends(pkg_name)
         for dep in deps:
             if dep not in all_deps:
                 all_deps.add(dep)
-                _do_find_deep_depends(dep)
-    _do_find_deep_depends(pkg_name)
+                _do_find_full_depends(dep)
+    _do_find_full_depends(pkg_name)
     return sorted(all_deps)
 
 
@@ -269,8 +269,10 @@ def print_sdf_like_files(pkg_name, slices):
         return self.represent_scalar('tag:yaml.org,2002:null', '')
     yaml.add_representer(type(None), represent_none)
     yaml.add_representer(OrderedDict, lambda dumper, data: dumper.represent_mapping('tag:yaml.org,2002:map', data.items()))
-    print("THE SDF-LIKE SLICE DEFINITION:\n")
+    print(f"THE SDF-LIKE SLICE DEFINITION FOR {pkg_name}:")
+    print("=====BEGIN=====")
     print(yaml.dump(sdf, Dumper=TopLevelEmptyLineDumper, sort_keys=False))
+    print("======END======")
 
 
 def get_chisel_releases_pkgs(ubuntu_release=None) -> lsb_release:
@@ -290,36 +292,40 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("package", help="Package name to slice")
     parser.add_argument("--depends", action="store_true", default=False, help="Print all dependencies")
-    parser.add_argument("--deep-depends", action="store_true", default=False, help="Print all deep dependencies")
+    parser.add_argument("--full-depends", action="store_true", default=False, help="Print the full dependencies")
     parser.add_argument("--slice", action="store_true", default=False, help="Slice the files")
     parser.add_argument("--all", action="store_true", default=False, help="Ignore existing slices in chisel-releases")
     args = parser.parse_args()
 
-    if args.depends and not args.deep_depends:
+    if args.depends and not args.full_depends:
         deps = find_depends(args.package)
         print(deps)
     
-    elif args.deep_depends and not args.depends:
-        deps = find_depends(args.package)
+    elif args.full_depends and not args.depends:
+        deps = find_full_depends(args.package)
         print(deps)
-    elif not args.depends and not args.deep_depends:
-        deps = [args.package]
+    elif not args.depends and not args.full_depends:
+        deps = []
     else:
         print("Invalid combination of --depends and --deep-depends")
         sys.exit(1)
+    deps.append(args.package)
 
     chisel_releases_pkgs = get_chisel_releases_pkgs()
+    ubuntu_release = f"ubuntu-{lsb_release.get_distro_information()['RELEASE']}"
 
     if args.slice:
-        for pkg in deps:
+        for i, pkg in enumerate(deps):
             if not args.all and pkg in chisel_releases_pkgs:
-                print(f"Package {pkg} already sliced in chisel-releases")
+                print(f"Package {pkg} already sliced in chisel-releases for {ubuntu_release}")
                 continue
             files = get_file_tokens_for_pkg(pkg)
             # print(files)
             print_sdf_like_files(pkg, files)
             if len(deps) > 1:
-                key = input(f"Press ENTER to continue on {pkg}, 'q ENTER' to quit: ")
+                if i == len(deps) - 1:
+                    break
+                key = input(f"Press ENTER to continue on {deps[i+1]}, 'q ENTER' to quit: ")
                 if key == "":
                     continue
                 if key == "q":
