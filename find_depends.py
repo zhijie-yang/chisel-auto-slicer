@@ -53,12 +53,24 @@ FILTER_DIRS = DOC_DIRS + LINT_DIRS
 FILE_TYPES = {
     "config": (CONF_DIRS, CONF_SUFFICES),
     "data": (DATA_DIRS, []),
-    "lib": (LIBS_DIRS, []),
-    "bin": (BIN_DIRS, []),
+    "libs": (LIBS_DIRS, []),
+    "bins": (BIN_DIRS, []),
+}
+INTERDEPENDENT_DEFAULT = {
+    "package": ["copyright"],
+    "libs": ["depends_libs"],
+    "bins": ["libs", "config", "depends_libs"],
 }
 
 cache = apt.Cache()
 temp_dir = tempdir()
+
+
+class TopLevelEmptyLineDumper(yaml.Dumper):
+    def write_line_break(self, data=None):
+        super().write_line_break(data)
+        if len(self.indents) == 1:
+            super().write_line_break()
 
 
 def find_depends(pkg_name):
@@ -169,7 +181,7 @@ def get_file_list_tokens(pkg_name: str):
     return files
 
 
-def parse_file_list(files: list[tuple[str]]):
+def parse_file_list(files: list[tuple[str]]) -> OrderedDict[str, list[tuple[str]]]:
     slices = OrderedDict({"copyright": [], "config": [], "data": [], "lib": [], "bin": [], "rest": []})
     files, rest = get_copyright_files(files)
     slices["copyright"] = files
@@ -208,17 +220,57 @@ def print_slice_files(pkg_name, files):
     return files
 
 
+def get_default_essential_slices(pkg_name: str, interdeps: list[str]) -> list[str]:
+    """Returns the default essential slices for a given slice
+
+    Args:
+        pkg_name (str): the package name
+        interdeps (list[str]): the list of interdependent slices
+
+    Returns:
+        list[str]: the list of essential slices
+    """
+    essential = []
+    for dep in interdeps:
+        # fill in the essential directive for the dependencies from other slices
+        if dep.startswith("depends_"):
+            slice_name = dep.lstrip("depends_")
+            for dep_pkg in find_depends(pkg_name):
+                if get_file_tokens_for_pkg(dep_pkg)[slice_name]:
+                    essential.append(f"{dep_pkg}_{slice_name}")
+        else: # fill in the essential directive for the dependencies from the same slice
+            essential.append(f"{pkg_name}_{dep}")
+    
+    return sorted(essential)
+
+
 def print_sdf_like_files(pkg_name, slices):
     if slices is None:
         return
     slices = {k: {"contents": {" ".join(f).lstrip("."): None for f in v}} for k, v in slices.items()}
     slices = {k: v for k, v in slices.items() if v["contents"]}
-    sdf = {"package": pkg_name, "slices": slices}
+
+    # Add default slices `essential` to slices
+    for slice, deps in INTERDEPENDENT_DEFAULT.items():
+        if slice in slices:
+           slices[slice]["essential"] = get_default_essential_slices(pkg_name, deps)
+
+
+    sdf = OrderedDict([("package", pkg_name)])
+
+
+    # Add copyright as package `essential``
+    if "copyright" in slices:
+        sdf["essential"] = [f"{pkg_name}_copyright"]
+
+    sdf["slices"] = slices
 
     def represent_none(self, _):
         return self.represent_scalar('tag:yaml.org,2002:null', '')
     yaml.add_representer(type(None), represent_none)
-    print(yaml.dump(sdf))
+    yaml.add_representer(OrderedDict, lambda dumper, data: dumper.represent_mapping('tag:yaml.org,2002:map', data.items()))
+    print("THE SDF-LIKE SLICE DEFINITION:\n")
+    print(yaml.dump(sdf, Dumper=TopLevelEmptyLineDumper, sort_keys=False))
 
 
 def get_chisel_releases_pkgs(ubuntu_release=None) -> lsb_release:
