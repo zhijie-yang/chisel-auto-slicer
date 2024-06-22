@@ -48,7 +48,14 @@ LIBS_DIRS = [
     "/usr/local/lib32",
     "/usr/local/lib64",
 ]
-BIN_DIRS = ["/bin", "/sbin", "/usr/bin", "/usr/sbin", "/usr/local/bin", "/usr/local/sbin"]
+BIN_DIRS = [
+    "/bin",
+    "/sbin",
+    "/usr/bin",
+    "/usr/sbin",
+    "/usr/local/bin",
+    "/usr/local/sbin",
+]
 FILTER_DIRS = DOC_DIRS + LINT_DIRS
 FILE_TYPES = {
     "config": (CONF_DIRS, CONF_SUFFICES),
@@ -84,9 +91,9 @@ def find_depends(pkg_name):
     ]
 
 
-
 def find_full_depends(pkg_name):
     all_deps = set()
+
     def _do_find_full_depends(pkg_name):
         nonlocal all_deps
         deps = find_depends(pkg_name)
@@ -94,6 +101,7 @@ def find_full_depends(pkg_name):
             if dep not in all_deps:
                 all_deps.add(dep)
                 _do_find_full_depends(dep)
+
     _do_find_full_depends(pkg_name)
     return sorted(all_deps)
 
@@ -108,7 +116,9 @@ def fetch_pkg(pkg_name) -> os.PathLike:
 
 
 def get_dpkg_file_list(pkg_path: os.PathLike) -> list:
-    result = subprocess.run(["dpkg", "-c", pkg_path], capture_output=True, text=True, check=True)
+    result = subprocess.run(
+        ["dpkg", "-c", pkg_path], capture_output=True, text=True, check=True
+    )
     file_list = result.stdout.splitlines()
     return file_list
 
@@ -157,7 +167,9 @@ def get_copyright_files(files: list[tuple[str]]):
     return file_set, rest_files
 
 
-def pretty_print_files(files: list[tuple[str]], keep_symbol=False, keep_dst=False, newline_after=True):
+def pretty_print_files(
+    files: list[tuple[str]], keep_symbol=False, keep_dst=False, newline_after=True
+):
     if keep_symbol and not keep_dst:
         files = sorted([file[0] for file in files])
     elif keep_dst and not keep_symbol:
@@ -182,7 +194,9 @@ def get_file_list_tokens(pkg_name: str):
 
 
 def parse_file_list(files: list[tuple[str]]) -> OrderedDict[str, list[tuple[str]]]:
-    slices = OrderedDict({"copyright": [], "config": [], "data": [], "lib": [], "bin": [], "rest": []})
+    slices = OrderedDict(
+        {"copyright": [], "config": [], "data": [], "lib": [], "bin": [], "rest": []}
+    )
     files, rest = get_copyright_files(files)
     slices["copyright"] = files
     for file_type, (dirs, suffices) in FILE_TYPES.items():
@@ -190,7 +204,7 @@ def parse_file_list(files: list[tuple[str]]) -> OrderedDict[str, list[tuple[str]
         slices[file_type] = files
     slices["rest"] = rest
     return slices
-    
+
 
 def get_file_tokens_for_pkg(pkg_name):
     files = get_file_list_tokens(pkg_name)
@@ -238,26 +252,27 @@ def get_default_essential_slices(pkg_name: str, interdeps: list[str]) -> list[st
             for dep_pkg in find_depends(pkg_name):
                 if get_file_tokens_for_pkg(dep_pkg)[slice_name]:
                     essential.append(f"{dep_pkg}_{slice_name}")
-        else: # fill in the essential directive for the dependencies from the same slice
+        else:  # fill in the essential directive for the dependencies from the same slice
             essential.append(f"{pkg_name}_{dep}")
-    
+
     return sorted(essential)
 
 
 def print_sdf_like_files(pkg_name, slices):
     if slices is None:
         return
-    slices = {k: {"contents": {" ".join(f).lstrip("."): None for f in v}} for k, v in slices.items()}
+    slices = {
+        k: {"contents": {" ".join(f).lstrip("."): None for f in v}}
+        for k, v in slices.items()
+    }
     slices = {k: v for k, v in slices.items() if v["contents"]}
 
     # Add default slices `essential` to slices
     for slice, deps in INTERDEPENDENT_DEFAULT.items():
         if slice in slices:
-           slices[slice]["essential"] = get_default_essential_slices(pkg_name, deps)
-
+            slices[slice]["essential"] = get_default_essential_slices(pkg_name, deps)
 
     sdf = OrderedDict([("package", pkg_name)])
-
 
     # Add copyright as package `essential``
     if "copyright" in slices:
@@ -266,9 +281,15 @@ def print_sdf_like_files(pkg_name, slices):
     sdf["slices"] = slices
 
     def represent_none(self, _):
-        return self.represent_scalar('tag:yaml.org,2002:null', '')
+        return self.represent_scalar("tag:yaml.org,2002:null", "")
+
     yaml.add_representer(type(None), represent_none)
-    yaml.add_representer(OrderedDict, lambda dumper, data: dumper.represent_mapping('tag:yaml.org,2002:map', data.items()))
+    yaml.add_representer(
+        OrderedDict,
+        lambda dumper, data: dumper.represent_mapping(
+            "tag:yaml.org,2002:map", data.items()
+        ),
+    )
     print(f"THE SDF-LIKE SLICE DEFINITION FOR {pkg_name}:")
     print("=====BEGIN=====")
     print(yaml.dump(sdf, Dumper=TopLevelEmptyLineDumper, sort_keys=False))
@@ -278,29 +299,49 @@ def print_sdf_like_files(pkg_name, slices):
 def get_chisel_releases_pkgs(ubuntu_release=None) -> lsb_release:
     if ubuntu_release is None:
         ubuntu_release = f"ubuntu-{lsb_release.get_distro_information()['RELEASE']}"
-    
+
     repo_path = os.path.join(temp_dir.name, "chisel-releases")
-    repo = git.Repo.clone_from("https://github.com/canonical/chisel-releases", repo_path)
+    repo = git.Repo.clone_from(
+        "https://github.com/canonical/chisel-releases", repo_path
+    )
     repo.git.checkout(ubuntu_release)
 
-    pkgs = [file.rstrip(".yaml") for file in os.listdir(os.path.join(repo_path, "slices")) if file.endswith(".yaml")]
-    
+    pkgs = [
+        file.rstrip(".yaml")
+        for file in os.listdir(os.path.join(repo_path, "slices"))
+        if file.endswith(".yaml")
+    ]
+
     return pkgs
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("package", help="Package name to slice")
-    parser.add_argument("--depends", action="store_true", default=False, help="Print all dependencies")
-    parser.add_argument("--full-depends", action="store_true", default=False, help="Print the full dependencies")
-    parser.add_argument("--slice", action="store_true", default=False, help="Slice the files")
-    parser.add_argument("--all", action="store_true", default=False, help="Ignore existing slices in chisel-releases")
+    parser.add_argument(
+        "--depends", action="store_true", default=False, help="Print all dependencies"
+    )
+    parser.add_argument(
+        "--full-depends",
+        action="store_true",
+        default=False,
+        help="Print the full dependencies",
+    )
+    parser.add_argument(
+        "--slice", action="store_true", default=False, help="Slice the files"
+    )
+    parser.add_argument(
+        "--all",
+        action="store_true",
+        default=False,
+        help="Ignore existing slices in chisel-releases",
+    )
     args = parser.parse_args()
 
     if args.depends and not args.full_depends:
         deps = find_depends(args.package)
         print(deps)
-    
+
     elif args.full_depends and not args.depends:
         deps = find_full_depends(args.package)
         print(deps)
@@ -317,7 +358,9 @@ if __name__ == "__main__":
     if args.slice:
         for i, pkg in enumerate(deps):
             if not args.all and pkg in chisel_releases_pkgs:
-                print(f"Package {pkg} already sliced in chisel-releases for {ubuntu_release}")
+                print(
+                    f"Package {pkg} already sliced in chisel-releases for {ubuntu_release}"
+                )
                 continue
             files = get_file_tokens_for_pkg(pkg)
             # print(files)
@@ -325,14 +368,12 @@ if __name__ == "__main__":
             if len(deps) > 1:
                 if i == len(deps) - 1:
                     break
-                key = input(f"Press ENTER to continue on {deps[i+1]}, 'q ENTER' to quit: ")
+                key = input(
+                    f"Press ENTER to continue on {deps[i+1]}, 'q ENTER' to quit: "
+                )
                 if key == "":
                     continue
                 if key == "q":
                     break
                 print("Invalid input")
                 break
-
-    # pretty_print_files(get_file_list_tokens(fetch_pkg(sys.argv[1])))
-
-    # print_slice_files(sys.argv[1])
