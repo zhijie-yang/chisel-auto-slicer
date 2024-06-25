@@ -85,10 +85,12 @@ def find_depends(pkg_name):
     if pkg is None:
         print(f"Package {pkg_name} not found")
         return []
-    pkg = pkg.candidate
-    return [
+    pkg: apt.Version = pkg.candidate
+    depends = [dep.name for base_dep in pkg.get_dependencies("PreDepends") for dep in base_dep]
+    depends.extend([
         dep.name for base_dep in pkg.get_dependencies("Depends") for dep in base_dep
-    ]
+    ])
+    return depends
 
 
 def find_full_depends(pkg_name):
